@@ -1,10 +1,18 @@
 package org.orderofthebee.tools.webhook.hub;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -17,7 +25,10 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.ServletException;
+import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -30,6 +41,7 @@ import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
+import org.orderofthebee.tools.webhook.hub.SecretConfig.Mode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +65,7 @@ public class WebhookHandler extends AbstractHandler
 
     private final WebhookConfig webhookConfig;
 
-    private final Pattern matchPattern;
+    private final Pattern urlMatchPattern;
 
     private final List<String> matchVariableNames = new ArrayList<>();
 
@@ -68,7 +80,7 @@ public class WebhookHandler extends AbstractHandler
         }
 
         this.webhookConfig = webhookConfig;
-        this.matchPattern = this.buildMatchPattern(webhookConfig, this.matchVariableNames);
+        this.urlMatchPattern = this.buildUrlMatchPattern(webhookConfig, this.matchVariableNames);
     }
 
     /**
@@ -78,7 +90,7 @@ public class WebhookHandler extends AbstractHandler
     public void handle(final String target, final Request baseRequest, final HttpServletRequest request, final HttpServletResponse response)
             throws IOException, ServletException
     {
-        final Optional<Map<String, Object>> urlVariablesOpt = this.matchRequestAndExtractVariables(request);
+        final Optional<Map<String, Object>> urlVariablesOpt = this.matchRequestUrlAndExtractVariables(request);
 
         urlVariablesOpt.ifPresent(urlVariables -> {
             try
@@ -90,40 +102,7 @@ public class WebhookHandler extends AbstractHandler
                 }
                 else
                 {
-                    LOGGER.info("Running {} request on {} through handler", request.getMethod(), request.getRequestURI());
-                    try (final Context context = Context.newBuilder("js").engine(this.engine).build())
-                    {
-                        this.prepareScriptBindings(context, baseRequest, request, response, urlVariables);
-
-                        // TODO Load configured handler script, supporting internal + external lookup
-                        final URL scriptResource = this.getClass().getClassLoader().getResource("testScript.js");
-                        if (scriptResource == null)
-                        {
-                            throw new IllegalStateException("Failed to find script to execute");
-                        }
-                        final Source source = Source.newBuilder("js", scriptResource).build();
-                        context.eval(source);
-
-                        if (!baseRequest.isHandled())
-                        {
-                            LOGGER.warn("Request {} has not been handled by script");
-                            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Request handler failed to act");
-                            baseRequest.setHandled(true);
-                        }
-                    }
-                    catch (final PolyglotException pEx)
-                    {
-                        LOGGER.error("Failed to run script", pEx);
-                        if (!baseRequest.isHandled())
-                        {
-                            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, pEx.getMessage());
-                            baseRequest.setHandled(true);
-                        }
-                        else
-                        {
-                            LOGGER.warn("Request {} has already been handled - not sending error response", request);
-                        }
-                    }
+                    this.executeHandlerScript(baseRequest, request, response, urlVariables);
                 }
             }
             catch (final IOException ioEx)
@@ -131,9 +110,110 @@ public class WebhookHandler extends AbstractHandler
                 LOGGER.error("IO error handling request {}", request, ioEx);
             }
         });
+        // else not matching URL pattern and no need to be handled
     }
 
-    protected Pattern buildMatchPattern(final WebhookConfig webhookConfig, final List<String> matchVariableNames)
+    protected static byte[] generateDigest(final InputStream is, final String digestAlgorithm) throws NoSuchAlgorithmException, IOException
+    {
+        final MessageDigest digest = MessageDigest.getInstance(digestAlgorithm);
+
+        final byte[] buf = new byte[10240];
+        int bytesRead;
+        while ((bytesRead = is.read(buf)) != -1)
+        {
+            digest.update(buf, 0, bytesRead);
+        }
+
+        final byte[] calculatedDigest = digest.digest();
+        return calculatedDigest;
+    }
+
+    protected static byte[] generateSaltedDigest(final InputStream is, final String sharedSecret, final String digestAlgorithm)
+            throws NoSuchAlgorithmException, InvalidKeyException, IOException
+    {
+        final SecretKeySpec signingKey = new SecretKeySpec(sharedSecret.getBytes(StandardCharsets.UTF_8), digestAlgorithm);
+        final Mac mac = Mac.getInstance(digestAlgorithm);
+        mac.init(signingKey);
+
+        final byte[] buf = new byte[10240];
+        int bytesRead;
+        while ((bytesRead = is.read(buf)) != -1)
+        {
+            mac.update(buf, 0, bytesRead);
+        }
+
+        final byte[] calculatedDigest = mac.doFinal();
+        return calculatedDigest;
+    }
+
+    protected static String toHex(final byte[] calculatedDigestBytes)
+    {
+        final StringBuilder hexBuilder = new StringBuilder(calculatedDigestBytes.length * 2);
+        for (final byte digestByte : calculatedDigestBytes)
+        {
+            hexBuilder.append(Integer.toHexString((digestByte & 0xF0) >> 4));
+            hexBuilder.append(Integer.toHexString(digestByte & 0x0F));
+        }
+        final String calculcatedDigestHex = hexBuilder.toString();
+        return calculcatedDigestHex;
+    }
+
+    protected void executeHandlerScript(final Request baseRequest, final HttpServletRequest request, final HttpServletResponse response,
+            final Map<String, Object> urlVariables) throws IOException
+    {
+        LOGGER.info("Running {} request on {} through handler", request.getMethod(), request.getRequestURI());
+
+        try (final Context context = Context.newBuilder("js").engine(this.engine).build())
+        {
+            this.prepareScriptBindings(context, baseRequest, request, response, urlVariables);
+
+            final String handlerScript = this.webhookConfig.getHandlerScript();
+            // priority to internalised scripts, fallback to file system scripts
+            URL scriptResource = this.getClass().getClassLoader().getResource(handlerScript);
+            if (scriptResource == null)
+            {
+                final Path path = Paths.get(handlerScript);
+                if (Files.exists(path) && Files.isRegularFile(path))
+                {
+                    scriptResource = path.toUri().toURL();
+                }
+            }
+
+            if (scriptResource == null)
+            {
+                LOGGER.error("Failed to lookup handler script {}", handlerScript);
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Server configuration error");
+                baseRequest.setHandled(true);
+            }
+            else
+            {
+                final Source source = Source.newBuilder("js", scriptResource).build();
+                context.eval(source);
+            }
+
+            if (!baseRequest.isHandled())
+            {
+                LOGGER.warn("Request {} has not been handled by script");
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Request handler failed to act");
+                baseRequest.setHandled(true);
+            }
+        }
+        catch (final PolyglotException pEx)
+        {
+            LOGGER.error("Failed to run script", pEx);
+            if (!baseRequest.isHandled())
+            {
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, pEx.getMessage());
+                baseRequest.setHandled(true);
+            }
+            else
+            {
+                LOGGER.warn("Request {} has already been handled - not sending error response", request);
+            }
+        }
+    }
+
+    protected Pattern buildUrlMatchPattern(final WebhookConfig webhookConfig, final List<String> matchVariableNames)
     {
         final String urlPattern = webhookConfig.getInbound().getUrlPattern();
         final StringBuilder matchPatternBuilder = new StringBuilder(urlPattern.length());
@@ -176,7 +256,7 @@ public class WebhookHandler extends AbstractHandler
         return matchPattern;
     }
 
-    protected Optional<Map<String, Object>> matchRequestAndExtractVariables(final HttpServletRequest request)
+    protected Optional<Map<String, Object>> matchRequestUrlAndExtractVariables(final HttpServletRequest request)
     {
         final InboundConfig inboundConfig = this.webhookConfig.getInbound();
         LOGGER.debug("Trying to match request {} against {}", request, this.webhookConfig);
@@ -191,11 +271,9 @@ public class WebhookHandler extends AbstractHandler
         {
             final int idxOfQueryString = requestURI.indexOf('?');
             final String requestPath = idxOfQueryString != -1 ? requestURI.substring(0, idxOfQueryString) : requestURI;
-            final Matcher pathMatcher = this.matchPattern.matcher(requestPath);
+            final Matcher pathMatcher = this.urlMatchPattern.matcher(requestPath);
             if (pathMatcher.matches())
             {
-                LOGGER.debug("Configured path pattern {} matches request path {}", inboundConfig.getUrlPattern(), requestPath);
-
                 final Map<String, Object> urlVariablesMap = new HashMap<>();
                 final int groupCount = pathMatcher.groupCount();
                 for (int group = 0; group < groupCount; group++)
@@ -204,43 +282,100 @@ public class WebhookHandler extends AbstractHandler
                     final String variableName = this.matchVariableNames.get(group);
                     urlVariablesMap.put(variableName, match);
                 }
-                LOGGER.debug("Extracted URI variables {}", urlVariablesMap);
+                LOGGER.debug("Extracted URI variables {} from {} via pattern {}", urlVariablesMap, requestURI,
+                        inboundConfig.getUrlPattern());
 
                 urlVariables = Optional.of(urlVariablesMap);
             }
             else
             {
+                LOGGER.debug("Configured path pattern {} does not match request path {}", inboundConfig.getUrlPattern(), requestPath);
                 urlVariables = Optional.empty();
             }
         }
         else
         {
+            LOGGER.debug("Request to {} using method {} does not match configured request method {}", requestURI, requestMethod,
+                    configuredRequestMethod);
             urlVariables = Optional.empty();
         }
         return urlVariables;
     }
 
-    protected boolean verifySecret(final HttpServletRequest request, final InboundConfig inboundConfig)
+    protected boolean verifySecret(final HttpServletRequest request, final InboundConfig inboundConfig) throws IOException
     {
         boolean validSecret = true;
         final SecretConfig configuredSecret = inboundConfig.getSecret();
 
         if (configuredSecret != null)
         {
-            final String secretName = configuredSecret.getName();
-            final String secretValue = configuredSecret.getValue();
+            validSecret = false;
 
-            if (secretName != null && secretValue != null)
+            final String requestURI = request.getRequestURI();
+            final Mode mode = configuredSecret.getMode();
+            final String name = configuredSecret.getName();
+            final String secretValue = configuredSecret.getSecretValue();
+            final String digestAlgorithm = configuredSecret.getDigestAlgorithm();
+
+            if (name != null && mode != null)
             {
-                final String paramSecret = configuredSecret.isUseHeader() ? request.getHeader(secretName)
-                        : request.getParameter(secretName);
-                validSecret = secretValue.equals(paramSecret);
-                LOGGER.debug("Checked {} name {} with value {} against configured secret {}",
-                        configuredSecret.isUseHeader() ? "header" : "parameter", secretName, paramSecret, secretValue);
+                switch (mode)
+                {
+                    case PLAIN_HEADER:
+                        if (secretValue == null)
+                        {
+                            LOGGER.warn("Inbound secret configuration is incomplete");
+                        }
+                        else
+                        {
+                            final String headerSecret = request.getHeader(name);
+                            validSecret = secretValue.equals(headerSecret);
+                        }
+                        break;
+                    case PLAIN_PARAMETER:
+                        if (secretValue == null)
+                        {
+                            LOGGER.warn("Inbound secret configuration is incomplete");
+                        }
+                        else
+                        {
+                            final String paramSecret = request.getParameter(name);
+                            validSecret = secretValue.equals(paramSecret);
+                        }
+                        break;
+                    case BODY_DIGEST_HEADER:
+                        final String simpleSignature = request.getHeader(name);
+                        validSecret = simpleSignature != null && this.verifyRequestDigest(request, simpleSignature, null, digestAlgorithm);
+                        break;
+                    case BODY_DIGEST_WITH_SHARED_SECRET_HEADER:
+                        if (secretValue == null)
+                        {
+                            LOGGER.warn("Inbound secret configuration is incomplete");
+                        }
+                        else
+                        {
+                            final String saltedSignature = request.getHeader(name);
+                            validSecret = saltedSignature != null
+                                    && this.verifyRequestDigest(request, saltedSignature, secretValue, digestAlgorithm);
+                        }
+                        break;
+                    default:
+                        LOGGER.warn("Unsupported secret mode {} - unable to verify secret on request to {}", mode, request.getRequestURI());
+                        validSecret = false;
+                }
+
+                if (!validSecret)
+                {
+                    LOGGER.warn("Secret in request to {} retrieved via {} using mode {} is invalid", requestURI, name, mode);
+                }
+                else
+                {
+                    LOGGER.debug("Secret in request to {} retrieved via {} using mode {} is valid", requestURI, name, mode);
+                }
             }
             else
             {
-                LOGGER.debug("Inbound secret configuration is incomplete");
+                LOGGER.warn("Inbound secret configuration is incomplete");
             }
         }
         else
@@ -249,6 +384,48 @@ public class WebhookHandler extends AbstractHandler
         }
 
         return validSecret;
+    }
+
+    protected boolean verifyRequestDigest(final HttpServletRequest request, final String signature, final String sharedSecret,
+            final String digestAlgorithm) throws IOException
+    {
+        final int idxOfEq = signature.indexOf('=');
+        final String digestValue = idxOfEq != -1 ? signature.substring(idxOfEq + 1) : signature;
+
+        boolean validDigest = false;
+
+        try
+        {
+            try (ServletInputStream sis = request.getInputStream())
+            {
+                if (sharedSecret != null)
+                {
+                    final byte[] calculatedDigest = generateSaltedDigest(sis, sharedSecret, digestAlgorithm);
+                    validDigest = this.digestsMatch(digestValue, calculatedDigest);
+                }
+                else
+                {
+                    final byte[] calculatedDigest = generateDigest(sis, digestAlgorithm);
+                    validDigest = this.digestsMatch(digestValue, calculatedDigest);
+                }
+            }
+        }
+        catch (final NoSuchAlgorithmException nsaEx)
+        {
+            LOGGER.error("Failed to verify request digest due to missing algorithm", nsaEx);
+        }
+        catch (final InvalidKeyException ikEx)
+        {
+            LOGGER.error("Failed to verify request digest due to invalid key", ikEx);
+        }
+        return validDigest;
+    }
+
+    protected boolean digestsMatch(final String requestProvidedDigest, final byte[] calculatedDigestBytes)
+    {
+        final String calculcatedDigestHex = toHex(calculatedDigestBytes);
+        final boolean digestsMatch = requestProvidedDigest.equals(calculcatedDigestHex);
+        return digestsMatch;
     }
 
     protected void prepareScriptBindings(final Context context, final Request baseRequest, final HttpServletRequest request,
@@ -275,7 +452,7 @@ public class WebhookHandler extends AbstractHandler
                 headerValuesL.add(headerValues.nextElement());
             }
 
-            headers.put(headerName, headerValuesL.toArray(new String[0]));
+            headers.put(headerName, headerValuesL.size() == 1 ? headerValuesL.get(0) : headerValuesL.toArray(new String[0]));
         }
         jsBindings.putMember("headers", ProxyObject.fromMap(headers));
 
@@ -284,7 +461,7 @@ public class WebhookHandler extends AbstractHandler
             jsBindings.putMember("contentType", request.getContentType());
             try (BufferedReader r = new BufferedReader(new InputStreamReader(request.getInputStream(), request.getCharacterEncoding())))
             {
-                final StringBuilder sb = new StringBuilder(10240);
+                final StringBuilder sb = new StringBuilder(1024 * 100);
                 String line;
                 while ((line = r.readLine()) != null)
                 {
@@ -405,10 +582,23 @@ public class WebhookHandler extends AbstractHandler
     protected HttpRequest doSendRequest(final String requestMethod, final String requestUrl, final String requestData,
             final String requestContentType, final SecretConfig secret)
     {
-        final boolean useSecretArgs = secret != null && !secret.isUseHeader();
-        final boolean useSecretHeader = secret != null && secret.isUseHeader();
+        final Mode secretMode = secret != null ? secret.getMode() : null;
         final String secretName = secret != null ? secret.getName() : null;
-        final String secretValue = secret != null ? secret.getValue() : null;
+        final String secretValue = secret != null ? secret.getSecretValue() : null;
+        final String secretDigestAlgorith = secret != null ? secret.getDigestAlgorithm() : null;
+
+        boolean useSecretArgs = false;
+        if (secretMode == Mode.PLAIN_PARAMETER)
+        {
+            if (secretName != null && secretValue != null)
+            {
+                useSecretArgs = true;
+            }
+            else
+            {
+                LOGGER.warn("Incomplete secret configuration - not sending secret with request to {}", requestUrl);
+            }
+        }
 
         HttpRequest httpRequest;
         switch (requestMethod)
@@ -429,9 +619,22 @@ public class WebhookHandler extends AbstractHandler
         }
 
         httpRequest = httpRequest.userAgent("OOTBee Webhook-Hub (http://orderofthebee.org, 1.0-SNAPSHOT)");
-        if (useSecretHeader)
+        try
         {
-            httpRequest = httpRequest.header(secretName, secretValue);
+            httpRequest = this.doSendRequestHandleHeaderSecret(httpRequest, requestUrl, requestData, secretMode, secretName, secretValue,
+                    secretDigestAlgorith);
+        }
+        catch (final IOException ioEX)
+        {
+            LOGGER.error("Failed to generate request digest due to IO error", ioEX);
+        }
+        catch (final NoSuchAlgorithmException nsaEx)
+        {
+            LOGGER.error("Failed to generate request digest due to missing algorithm", nsaEx);
+        }
+        catch (final InvalidKeyException ikEx)
+        {
+            LOGGER.error("Failed to generate request digest due to invalid key", ikEx);
         }
 
         if (requestData != null)
@@ -444,5 +647,76 @@ public class WebhookHandler extends AbstractHandler
             LOGGER.info("Sending request via {} to {}", requestMethod, requestUrl);
         }
         return httpRequest;
+    }
+
+    protected HttpRequest doSendRequestHandleHeaderSecret(final HttpRequest httpRequest, final String requestUrl,
+            final String requestMessage, final Mode secretMode, final String secretName, final String secretValue,
+            final String secretDigestAlgorith) throws NoSuchAlgorithmException, InvalidKeyException, IOException
+    {
+        HttpRequest resultRequest = httpRequest;
+        if (secretMode != null && secretMode != Mode.PLAIN_PARAMETER)
+        {
+            String effectiveSecretValue = null;
+            switch (secretMode)
+            {
+                case PLAIN_HEADER:
+                    if (secretName != null && secretValue != null)
+                    {
+                        effectiveSecretValue = secretValue;
+                    }
+                    else
+                    {
+                        LOGGER.warn("Incomplete secret configuration - not sending secret with request to {}", requestUrl);
+                    }
+                    break;
+                case BODY_DIGEST_HEADER:
+                    if (secretName != null)
+                    {
+                        if (requestMessage != null)
+                        {
+                            final byte[] generateDigest = generateDigest(
+                                    new ByteArrayInputStream(requestMessage.getBytes(StandardCharsets.UTF_8.name())), secretDigestAlgorith);
+                            effectiveSecretValue = toHex(generateDigest);
+                        }
+                        else
+                        {
+                            LOGGER.warn("Unable to generate message digest in request to {} since no content will be sent", requestUrl);
+                        }
+                    }
+                    else
+                    {
+                        LOGGER.warn("Incomplete secret configuration - not sending secret with request to {}", requestUrl);
+                    }
+                    break;
+                case BODY_DIGEST_WITH_SHARED_SECRET_HEADER:
+                    if (secretName != null && secretValue != null)
+                    {
+                        if (requestMessage != null)
+                        {
+                            final byte[] generateSaltedDigest = generateSaltedDigest(
+                                    new ByteArrayInputStream(requestMessage.getBytes(StandardCharsets.UTF_8.name())), secretValue,
+                                    secretDigestAlgorith);
+                            effectiveSecretValue = toHex(generateSaltedDigest);
+                        }
+                        else
+                        {
+                            LOGGER.warn("Unable to generate message digest in request to {} since no content will be sent", requestUrl);
+                        }
+                    }
+                    else
+                    {
+                        LOGGER.warn("Incomplete secret configuration - not sending secret with request to {}", requestUrl);
+                    }
+                    break;
+                default:
+                    LOGGER.warn("Unsupported secret mode {} - not sending secret with request to {}", secretMode, requestUrl);
+            }
+
+            if (effectiveSecretValue != null)
+            {
+                resultRequest = httpRequest.header(secretName, effectiveSecretValue);
+            }
+        }
+        return resultRequest;
     }
 }

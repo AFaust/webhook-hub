@@ -1,0 +1,27 @@
+webhooks:
+  - inbound:
+      requestMethod: "post"
+      urlPattern: "/hooks/github/ootbee-discord/testfield"
+      secret:
+        name: "X-Hub-Signature"
+        mode: body_digest_with_shared_secret_header
+        secretValue: "%OOTBEE_TESTFIELD_GITHUB_SECRET%"
+        digestAlgorithm: "HmacSha1"
+    outbound:
+      requestMethod: "post"
+      requestUrl: "%OOTBEE_TESTFIELD_URL%"
+      requestContentType: "application/json"
+    handlerScript: "scripts/github_for_ootbee_discord.js"
+  - inbound:
+      requestMethod: "post"
+      urlPattern: "/hooks/github/ootbee-discord/support-tools"
+      secret:
+        name: "X-Hub-Signature"
+        mode: body_digest_with_shared_secret_header
+        secretValue: "%OOTBEE_SUPPORT_TOOLS_GITHUB_SECRET%"
+        digestAlgorithm: "HmacSha1"
+    outbound:
+      requestMethod: "post"
+      requestUrl: "%OOTBEE_SUPPORT_TOOLS_URL%"
+      requestContentType: "application/json"
+    handlerScript: "scripts/github_for_ootbee_discord.js"

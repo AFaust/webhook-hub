@@ -30,9 +30,9 @@ public class WebhookConfig
     }
 
     /**
-     * @return the mapperScript
+     * @return the handlerScript
      */
-    public String getMapperScript()
+    public String getHandlerScript()
     {
         return this.handlerScript;
     }

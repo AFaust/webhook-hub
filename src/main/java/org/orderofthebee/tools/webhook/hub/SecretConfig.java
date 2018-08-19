@@ -1,16 +1,32 @@
 package org.orderofthebee.tools.webhook.hub;
 
+import java.util.Locale;
+
 /**
  * @author Axel Faust
  */
 public class SecretConfig
 {
 
+    /**
+     *
+     * @author Axel Faust
+     */
+    public static enum Mode
+    {
+        PLAIN_HEADER,
+        PLAIN_PARAMETER,
+        BODY_DIGEST_HEADER,
+        BODY_DIGEST_WITH_SHARED_SECRET_HEADER;
+    }
+
     private String name;
 
-    private String value;
+    private String secretValue;
 
-    private boolean useHeader;
+    private Mode mode = Mode.PLAIN_PARAMETER;
+
+    private String digestAlgorithm;
 
     /**
      * @return the name
@@ -30,37 +46,55 @@ public class SecretConfig
     }
 
     /**
-     * @return the value
+     * @return the secretValue
      */
-    public String getValue()
+    public String getSecretValue()
     {
-        return this.value;
+        return this.secretValue;
     }
 
     /**
-     * @param value
-     *            the value to set
+     * @param secretValue
+     *            the secretValue to set
      */
-    public void setValue(final String value)
+    public void setSecretValue(final String secretValue)
     {
-        this.value = value;
+        this.secretValue = secretValue;
     }
 
     /**
-     * @return the useHeader
+     * @return the mode
      */
-    public boolean isUseHeader()
+    public Mode getMode()
     {
-        return this.useHeader;
+        return this.mode;
     }
 
     /**
-     * @param useHeader
-     *            the useHeader to set
+     * @param mode
+     *            the mode to set
      */
-    public void setUseHeader(final boolean useHeader)
+    public void setMode(final String mode)
     {
-        this.useHeader = useHeader;
+        // TODO add support for camelCase, i.e. plainHeader in addition to plain_header
+        this.mode = Mode.valueOf(mode.toUpperCase(Locale.ENGLISH));
+    }
+
+    /**
+     * @return the digestAlgorithm
+     */
+    public String getDigestAlgorithm()
+    {
+        return this.digestAlgorithm;
+    }
+
+    /**
+     * @param digestAlgorithm
+     *            the digestAlgorithm to set
+     */
+    public void setDigestAlgorithm(final String digestAlgorithm)
+    {
+        this.digestAlgorithm = digestAlgorithm;
     }
 
     /**
@@ -75,10 +109,13 @@ public class SecretConfig
         builder.append(this.name);
         builder.append(", ");
         builder.append("value=");
-        builder.append(this.value);
+        builder.append(this.secretValue);
         builder.append(", ");
-        builder.append("useHeader=");
-        builder.append(this.useHeader);
+        builder.append("mode=");
+        builder.append(this.mode);
+        builder.append(", ");
+        builder.append("digestAlgorithm=");
+        builder.append(this.digestAlgorithm);
         builder.append("]");
         return builder.toString();
     }

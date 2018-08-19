@@ -27,6 +27,7 @@ import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.server.handler.ShutdownHandler;
+import org.eclipse.jetty.server.handler.StatisticsHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -182,7 +183,11 @@ public class Runner
         serverConfig.getWebhooks().forEach(webhookConfig -> handlers.add(new WebhookHandler(webhookConfig)));
 
         final HandlerList handlerList = new HandlerList(handlers.toArray(new Handler[0]));
-        server.setHandler(handlerList);
+        final RequestBufferingHandler bufferingHandler = new RequestBufferingHandler();
+        bufferingHandler.setHandler(handlerList);
+        final StatisticsHandler statisticsHandler = new StatisticsHandler();
+        statisticsHandler.setHandler(bufferingHandler);
+        server.setHandler(statisticsHandler);
         return server;
     }
 
