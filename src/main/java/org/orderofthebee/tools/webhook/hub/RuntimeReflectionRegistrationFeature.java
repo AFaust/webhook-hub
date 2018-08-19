@@ -31,23 +31,23 @@ class RuntimeReflectionRegistrationFeature implements Feature
 
         // YAML config
         RuntimeReflection.register(ServerConfig.class);
-        // RuntimeReflection.register(ServerConfig.class.getConstructors());
+        RuntimeReflection.register(ServerConfig.class.getConstructors());
         RuntimeReflection.register(ServerConfig.class.getDeclaredFields());
         RuntimeReflection.register(ServerConfig.class.getDeclaredMethods());
         RuntimeReflection.register(WebhookConfig.class);
-        // RuntimeReflection.register(WebhookConfig.class.getConstructors());
+        RuntimeReflection.register(WebhookConfig.class.getConstructors());
         RuntimeReflection.register(WebhookConfig.class.getDeclaredFields());
         RuntimeReflection.register(WebhookConfig.class.getDeclaredMethods());
         RuntimeReflection.register(InboundConfig.class);
-        // RuntimeReflection.register(InboundConfig.class.getConstructors());
+        RuntimeReflection.register(InboundConfig.class.getConstructors());
         RuntimeReflection.register(InboundConfig.class.getDeclaredFields());
         RuntimeReflection.register(InboundConfig.class.getDeclaredMethods());
         RuntimeReflection.register(OutboundConfig.class);
-        // RuntimeReflection.register(OutboundConfig.class.getConstructors());
+        RuntimeReflection.register(OutboundConfig.class.getConstructors());
         RuntimeReflection.register(OutboundConfig.class.getDeclaredFields());
         RuntimeReflection.register(OutboundConfig.class.getDeclaredMethods());
         RuntimeReflection.register(SecretConfig.class);
-        // RuntimeReflection.register(SecretConfig.class.getConstructors());
+        RuntimeReflection.register(SecretConfig.class.getConstructors());
         RuntimeReflection.register(SecretConfig.class.getDeclaredFields());
         RuntimeReflection.register(SecretConfig.class.getDeclaredMethods());
     }
