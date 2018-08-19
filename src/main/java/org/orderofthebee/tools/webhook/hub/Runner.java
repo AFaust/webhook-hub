@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -27,12 +26,9 @@ import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.server.handler.ShutdownHandler;
-import org.eclipse.jetty.server.handler.StatisticsHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.sampullara.cli.Args;
 import com.sampullara.cli.Argument;
 
@@ -165,29 +161,15 @@ public class Runner
 
     private static Server setupServer(final String shutdownToken, final StartOptions options) throws IOException
     {
-        ServerConfig serverConfig;
-
-        final Path configFilePath = Paths.get(options.getConfigFile());
-        LOGGER.info("Loading server configuration file {}", configFilePath.toAbsolutePath());
-        try (Reader cr = new InputStreamReader(Files.newInputStream(configFilePath, StandardOpenOption.READ), StandardCharsets.UTF_8))
-        {
-            final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-            serverConfig = mapper.readValue(cr, ServerConfig.class);
-        }
-
         final Server server = new Server(options.getEffectivePort());
 
         final List<Handler> handlers = new ArrayList<>();
         handlers.add(new ShutdownHandler(shutdownToken));
 
-        serverConfig.getWebhooks().forEach(webhookConfig -> handlers.add(new WebhookHandler(webhookConfig)));
+        handlers.add(new WebhookHandler());
 
         final HandlerList handlerList = new HandlerList(handlers.toArray(new Handler[0]));
-        final RequestBufferingHandler bufferingHandler = new RequestBufferingHandler();
-        bufferingHandler.setHandler(handlerList);
-        final StatisticsHandler statisticsHandler = new StatisticsHandler();
-        statisticsHandler.setHandler(bufferingHandler);
-        server.setHandler(statisticsHandler);
+        server.setHandler(handlerList);
         return server;
     }
 

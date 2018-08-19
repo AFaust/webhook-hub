@@ -32,14 +32,14 @@
         <dep.slf4j.version>1.7.25</dep.slf4j.version>
         <dep.logback.version>1.2.3</dep.logback.version>
         <dep.graalvm.version>1.0.0-rc5</dep.graalvm.version>
-        <dep.jackson.version>2.9.6</dep.jackson.version>
-        <dep.http-request.version>6.0</dep.http-request.version>
 
         <docker.registry.organisation>OrderOfTheBee</docker.registry.organisation>
         <!-- use Acosix GraalVM image based on Phusion baseimage (Ubuntu) as base -->
         <images.from.name>baseimage-graalvm</images.from.name>
         <images.from.id>acosix/${images.from.name}</images.from.id>
         <images.from.version>1.0.0-SNAPSHOT</images.from.version>
+
+        <graalvm.version>1.0.0-rc5</graalvm.version>
     </properties>
 
     <repositories>
@@ -110,24 +110,6 @@
             <groupId>org.graalvm</groupId>
             <artifactId>graal-sdk</artifactId>
             <version>${dep.graalvm.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${dep.jackson.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
-            <artifactId>jackson-dataformat-yaml</artifactId>
-            <version>${dep.jackson.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.github.kevinsawicki</groupId>
-            <artifactId>http-request</artifactId>
-            <version>${dep.http-request.version}</version>
         </dependency>
     </dependencies>
 
@@ -248,14 +230,8 @@
                                 <artifactSet>
                                     <includes>
                                         <include>com.github.spullara.cli-parser:cli-parser</include>
-                                        <include>com.github.kevinsawicki:http-request</include>
                                         <include>org.eclipse.jetty:*</include>
                                         <include>javax.servlet:*</include>
-                                        <include>com.fasterxml.jackson.core:jackson-core</include>
-                                        <include>com.fasterxml.jackson.core:jackson-annotations</include>
-                                        <include>com.fasterxml.jackson.core:jackson-databind</include>
-                                        <include>org.yaml:snakeyaml</include>
-                                        <include>com.fasterxml.jackson.dataformat:jackson-dataformat-yaml</include>
                                         <include>org.slf4j:slf4j-api</include>
                                         <include>ch.qos.logback:logback-core</include>
                                         <include>ch.qos.logback:logback-classic</include>
@@ -319,6 +295,9 @@
             <plugin>
                 <groupId>com.spotify</groupId>
                 <artifactId>dockerfile-maven-plugin</artifactId>
+                <configuration>
+                    <retryCount>0</retryCount>
+                </configuration>
             </plugin>
         </plugins>
     </build>

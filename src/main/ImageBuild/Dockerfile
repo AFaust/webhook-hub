@@ -2,8 +2,17 @@ FROM ${images.from.id}:${images.from.version.majorVersion}.${images.from.version
 
 COPY initHub.sh startHub.sh hooks.yml ${project.build.finalName}-shaded.jar /tmp/
 
-RUN mkdir -p /var/lib/webhook-hub \
+# if we had installed GraalVM in this build we could also uninstall it after running natve-image to achieve a much slimmer image
+RUN install_clean \
+      gcc \
+      zlib1g-dev \
+   && mkdir -p /var/lib/webhook-hub \
    && mv /tmp/${project.build.finalName}-shaded.jar /var/lib/webhook-hub/webhook-hub.jar \
+   && cd /var/lib/webhook-hub \
+   && /usr/lib/jvm/graalvm-ce-${graalvm.version}/bin/native-image -jar ./webhook-hub.jar -H:Name=webhook-hub -H:+JNI -H:EnableURLProtocols=http \
+   && apt-get autoremove -y \
+      gcc \
+      zlib1g-dev \
    && mkdir -p /srv/webhook-hub \
    && mv /tmp/hooks.yml /srv/webhook-hub/ \
    && mkdir -p /etc/my_init.d \
