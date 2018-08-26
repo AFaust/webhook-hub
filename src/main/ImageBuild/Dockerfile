@@ -5,7 +5,7 @@ COPY ${project.build.finalName}-shaded.jar /tmp/
 RUN mkdir -p /var/lib/webhook-hub \
    && mv /tmp/${project.build.finalName}-shaded.jar /var/lib/webhook-hub/webhook-hub.jar \
    && cd /var/lib/webhook-hub \
-   && /usr/lib/jvm/graalvm-ce-${dep.graalvm.version}/bin/native-image -jar ./webhook-hub.jar -H:Name=webhook-hub -H:+JNI -H:EnableURLProtocols=http
+   && /usr/lib/jvm/graalvm-ce-${dep.graalvm.version}/bin/native-image --language:js -jar ./webhook-hub.jar -H:Name=webhook-hub -H:+JNI -H:EnableURLProtocols=http
 
 FROM ${docker.from.id}:${docker.from.version}
 
