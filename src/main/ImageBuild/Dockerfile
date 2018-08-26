@@ -1,4 +1,4 @@
-FROM ${images.from.id}:${images.from.version.majorVersion}.${images.from.version.minorVersion}.${images.from.version.incrementalVersion}
+FROM ${docker.from.id}:${docker.from.version}
 
 COPY initHub.sh startHub.sh hooks.yml ${project.build.finalName}-shaded.jar /tmp/
 
@@ -15,9 +15,9 @@ RUN mkdir -p /var/lib/webhook-hub \
 
 EXPOSE 8080
 
-LABEL vendor="${images.labels.vendor}" \
-   ${images.labels.namespace}.version="${project.version.majorVersion}.${project.version.minorVersion}.${project.version.incrementalVersion}" \
-   ${images.labels.namespace}.is-beta="" \
-   ${images.labels.namespace}.is-production="" \
-   ${images.labels.namespace}.release-date="${images.label.release-date}" \
-   ${images.labels.namespace}.maintainer="${images.labels.maintainer}"
+LABEL vendor="${docker.labels.vendor}" \
+   ${docker.labels.namespace}.version="${project.version}" \
+   ${docker.labels.namespace}.is-beta="" \
+   ${docker.labels.namespace}.is-production="" \
+   ${docker.labels.namespace}.release-date="${docker.labels.release-date}" \
+   ${docker.labels.namespace}.maintainer="${docker.labels.maintainer}"

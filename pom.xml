@@ -35,11 +35,15 @@
         <dep.jackson.version>2.9.6</dep.jackson.version>
         <dep.http-request.version>6.0</dep.http-request.version>
 
-        <docker.registry.organisation>OrderOfTheBee</docker.registry.organisation>
+        <docker.image.organisation>orderofthebee</docker.image.organisation>
         <!-- use Acosix GraalVM image based on Phusion baseimage (Ubuntu) as base -->
-        <images.from.name>baseimage-graalvm</images.from.name>
-        <images.from.id>acosix/${images.from.name}</images.from.id>
-        <images.from.version>1.0.0-SNAPSHOT</images.from.version>
+        <docker.from.name>baseimage-graalvm</docker.from.name>
+        <docker.from.organisation>acosix</docker.from.organisation>
+        <docker.from.version>1.0.0-SNAPSHOT</docker.from.version>
+
+        <docker.labels.vendor>OrderOfTheBee</docker.labels.vendor>
+        <docker.labels.maintainer>AFaust</docker.labels.maintainer>
+        <docker.labels.namespace>org.orderofthebee.docker</docker.labels.namespace>
     </properties>
 
     <repositories>
@@ -317,8 +321,8 @@
                 <artifactId>maven-antrun-plugin</artifactId>
             </plugin>
             <plugin>
-                <groupId>com.spotify</groupId>
-                <artifactId>dockerfile-maven-plugin</artifactId>
+                <groupId>io.fabric8</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
