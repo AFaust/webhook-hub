@@ -1,10 +1,18 @@
-FROM ${docker.from.id}:${docker.from.version}
+FROM ${docker.from.id}-graalvm:${docker.from.version} as graalvm
 
-COPY initHub.sh startHub.sh hooks.yml ${project.build.finalName}-shaded.jar /tmp/
+COPY ${project.build.finalName}-shaded.jar /tmp/
 
 RUN mkdir -p /var/lib/webhook-hub \
    && mv /tmp/${project.build.finalName}-shaded.jar /var/lib/webhook-hub/webhook-hub.jar \
-   && mkdir -p /srv/webhook-hub \
+   && cd /var/lib/webhook-hub \
+   && /usr/lib/jvm/graalvm-ce-${dep.graalvm.version}/bin/native-image -jar ./webhook-hub.jar -H:Name=webhook-hub -H:+JNI -H:EnableURLProtocols=http
+
+FROM ${docker.from.id}:${docker.from.version}
+
+COPY --from=graalvm /var/lib/webhook-hub/webhook-hub /var/lib/webhook-hub/webhook-hub
+COPY initHub.sh startHub.sh hooks.yml /tmp/
+
+RUN mkdir -p /srv/webhook-hub \
    && mv /tmp/hooks.yml /srv/webhook-hub/ \
    && mkdir -p /etc/my_init.d \
    && mv /tmp/initHub.sh /etc/my_init.d/20_initWebhook-Hub.sh \

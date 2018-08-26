@@ -37,7 +37,7 @@
 
         <docker.image.organisation>orderofthebee</docker.image.organisation>
         <!-- use Acosix GraalVM image based on Phusion baseimage (Ubuntu) as base -->
-        <docker.from.name>baseimage-graalvm</docker.from.name>
+        <docker.from.name>baseimage</docker.from.name>
         <docker.from.organisation>acosix</docker.from.organisation>
         <docker.from.version>1.0.0-SNAPSHOT</docker.from.version>
 
