@@ -33,13 +33,15 @@
         <dep.logback.version>1.2.3</dep.logback.version>
         <dep.graalvm.version>1.0.0-rc5</dep.graalvm.version>
 
-        <docker.registry.organisation>OrderOfTheBee</docker.registry.organisation>
+        <docker.image.organisation>orderofthebee</docker.image.organisation>
         <!-- use Acosix GraalVM image based on Phusion baseimage (Ubuntu) as base -->
-        <images.from.name>baseimage-graalvm</images.from.name>
-        <images.from.id>acosix/${images.from.name}</images.from.id>
-        <images.from.version>1.0.0-SNAPSHOT</images.from.version>
+        <docker.from.name>baseimage</docker.from.name>
+        <docker.from.organisation>acosix</docker.from.organisation>
+        <docker.from.version>1.0.0-SNAPSHOT</docker.from.version>
 
-        <graalvm.version>1.0.0-rc5</graalvm.version>
+        <docker.labels.vendor>OrderOfTheBee</docker.labels.vendor>
+        <docker.labels.maintainer>AFaust</docker.labels.maintainer>
+        <docker.labels.namespace>org.orderofthebee.docker</docker.labels.namespace>
     </properties>
 
     <repositories>
@@ -293,11 +295,8 @@
                 <artifactId>maven-antrun-plugin</artifactId>
             </plugin>
             <plugin>
-                <groupId>com.spotify</groupId>
-                <artifactId>dockerfile-maven-plugin</artifactId>
-                <configuration>
-                    <retryCount>0</retryCount>
-                </configuration>
+                <groupId>io.fabric8</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
